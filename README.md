@@ -1,71 +1,95 @@
-# Monorepo Project
+# KODEWAR
 
-This is a monorepo containing a Next.js frontend and Django backend with Channels and Celery.
+A modern web application built with Next.js frontend and Django backend, using Docker for containerization.
 
-## Project Structure
+## Tech Stack
 
-```
-.
-├── frontend/          # Next.js frontend application
-├── backend/          # Django backend application
-├── docker-compose.yml # Docker services configuration
-└── README.md         # This file
-```
+### Frontend
 
-## Services
+- Next.js
+- React
+- TypeScript
 
-- **Frontend**: Next.js application running on port 3000
-- **Backend**: Django application with Channels and Celery running on port 8000
-- **PostgreSQL**: Database running on port 5432
-- **Redis**: Cache and message broker running on port 6379
+### Backend
+
+- Django
+- Django Channels
+- Celery
+- PostgreSQL
+- Redis
+
+### Infrastructure
+
+- Docker
+- Docker Compose
+- Colima (for macOS)
 
 ## Prerequisites
 
 - Docker
-- Docker Compose
+- Colima (for macOS users)
+- Git
 
 ## Getting Started
 
 1. Clone the repository:
 
    ```bash
-   git clone <repository-url>
-   cd <repository-name>
+   git clone <your-repo-url>
+   cd KODEWAR
    ```
 
-2. Start the services:
+2. Start Colima (if using macOS):
 
    ```bash
-   docker-compose up
+   colima start
    ```
 
-3. Access the applications:
+3. Build and start the services:
+
+   ```bash
+   docker-compose up --build
+   ```
+
+4. Access the applications:
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
+   - Celery Flower (Monitoring): http://localhost:5555
+
+## Project Structure
+
+```
+KODEWAR/
+├── frontend/          # Next.js frontend application
+├── backend/           # Django backend application
+│   ├── config/       # Django project configuration
+│   └── core/         # Django core application
+├── docker-compose.yml # Docker Compose configuration
+└── README.md         # Project documentation
+```
 
 ## Development
 
-- Frontend development files are in the `frontend/` directory
-- Backend development files are in the `backend/` directory
-- Each service has its own Dockerfile for building the container
+### Frontend Development
 
-## Environment Variables
+The frontend is a Next.js application running on port 3000. Hot reloading is enabled for development.
 
-The following environment variables are configured in docker-compose.yml:
+### Backend Development
 
-### Backend
-
-- `DEBUG`: Django debug mode
-- `DJANGO_SETTINGS_MODULE`: Django settings module
-- `DATABASE_URL`: PostgreSQL connection URL
-- `REDIS_URL`: Redis connection URL
-
-### Frontend
-
-- `NODE_ENV`: Node.js environment
+The Django backend runs on port 8000 with Celery for background tasks. The Celery worker is configured with event monitoring enabled.
 
 ### Database
 
-- `POSTGRES_DB`: PostgreSQL database name
-- `POSTGRES_USER`: PostgreSQL username
-- `POSTGRES_PASSWORD`: PostgreSQL password
+PostgreSQL is used as the main database, running on port 5432.
+
+### Message Broker
+
+Redis is used as the message broker for Celery, running on port 6379.
+
+## Monitoring
+
+Celery Flower is available at http://localhost:5555 for monitoring tasks and workers.
+
+## License
+
+[Your chosen license]
