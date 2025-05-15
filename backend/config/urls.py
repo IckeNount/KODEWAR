@@ -16,7 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from core.views import hello_world, CodeSubmissionView, TaskStatusView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/hello/', hello_world, name='hello_world'),
+    path('api/submit/', CodeSubmissionView.as_view(), name='code_submission'),
+    path('api/status/<str:task_id>/', TaskStatusView.as_view(), name='task_status'),
 ]

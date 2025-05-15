@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements-sandbox.txt .
+RUN pip install --no-cache-dir -r requirements-sandbox.txt
+
+# Copy test runner script
+COPY run_tests.py .
+
+# Set non-root user for security
+RUN useradd -m sandbox
+USER sandbox
+
+# Default command
+CMD ["python", "run_tests.py"] 
