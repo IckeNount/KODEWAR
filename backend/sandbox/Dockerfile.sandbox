@@ -1,23 +1,53 @@
+# Use a minimal base image
 FROM python:3.11-slim
 
-# Set working directory
-WORKDIR /app
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install security updates and required packages
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
     gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements-sandbox.txt .
-RUN pip install --no-cache-dir -r requirements-sandbox.txt
+# Create non-root user
+RUN useradd -m -s /bin/bash kodewar && \
+    chown -R kodewar:kodewar /home/kodewar
 
-# Copy test runner script
-COPY run_tests.py .
+# Set up working directory
+WORKDIR /app
 
-# Set non-root user for security
-RUN useradd -m sandbox
-USER sandbox
 
-# Default command
-CMD ["python", "run_tests.py"] 
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Set security options
+RUN chmod -R 755 /app && \
+    chown -R kodewar:kodewar /app
+
+# Switch to non-root user
+USER kodewar
+
+# Set resource limits
+RUN ulimit -t 30 && \
+    ulimit -v 512000 && \
+    ulimit -n 1024
+
+# Set security options
+RUN echo "kernel.yama.ptrace_scope = 2" >> /etc/sysctl.conf && \
+    echo "kernel.kptr_restrict = 2" >> /etc/sysctl.conf && \
+    echo "kernel.sysrq = 0" >> /etc/sysctl.conf
+
+# Set up seccomp profile
+COPY seccomp.json /etc/docker/seccomp.json
+
+# Set entrypoint
+ENTRYPOINT ["python", "run.py"] 

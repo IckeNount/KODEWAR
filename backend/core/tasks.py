@@ -7,110 +7,129 @@ from celery import shared_task
 import docker
 from docker.errors import DockerException
 from django.conf import settings
+from .sandbox import SandboxManager, SandboxError, ResourceLimitError, SecurityError
+import logging
+from django.core.cache import cache
 
-@shared_task(bind=True, max_retries=3)
-def run_code_task(self, code: str, test_file: str, timeout: int = 30, memory_limit: int = 512) -> Dict[str, Any]:
-    """
-    Celery task to run user code in a sandboxed Docker container.
-    
-    Args:
-        code: The user's code to run
-        test_file: Path to the test file
-        timeout: Test execution timeout in seconds
-        memory_limit: Memory limit in MB
-        
-    Returns:
-        Dictionary containing test results
-    """
+logger = logging.getLogger(__name__)
+
+@shared_task
+def run_code_task(code, language, test_cases=None, submission_id=None):
+    """Execute code in sandboxed environment."""
+    sandbox = SandboxManager()
     container = None
-    temp_dir = None
     
     try:
-        # Initialize Docker client
-        client = docker.from_env()
-        
-        # Create temporary directory for code
-        temp_dir = tempfile.mkdtemp()
-        code_path = os.path.join(temp_dir, 'solution.py')
-        
-        # Write user code to file
-        with open(code_path, 'w') as f:
-            f.write(code)
-            
-        # Build sandbox image if not exists
-        try:
-            client.images.get('code-sandbox')
-        except docker.errors.ImageNotFound:
-            client.images.build(
-                path=os.path.join(settings.BASE_DIR, 'sandbox'),
-                tag='code-sandbox',
-                dockerfile='Dockerfile.sandbox'
-            )
-        
-        # Create and start container
-        container = client.containers.create(
-            image='code-sandbox',
-            environment={
-                'TEST_FILE': test_file,
-                'TEST_TIMEOUT': str(timeout),
-                'MEMORY_LIMIT': str(memory_limit)
-            },
-            mem_limit=f'{memory_limit}m',
-            network_disabled=True,  # Disable network access
-            read_only=True,  # Make container filesystem read-only
-            volumes={
-                temp_dir: {'bind': '/app/user_code', 'mode': 'ro'}
-            }
+        # Create container
+        container = sandbox.create_container(
+            code=code,
+            language=language,
+            test_cases=test_cases
         )
         
-        # Start container
-        container.start()
+        # Run container
+        result = sandbox.run_container(container)
         
-        # Wait for container to finish
-        exit_code = container.wait(timeout=timeout + 5)  # Add 5 seconds buffer
-        
-        # Get container logs
-        logs = container.logs(stdout=True, stderr=True).decode('utf-8')
-        
-        # Parse results
-        try:
-            results = json.loads(logs)
-        except json.JSONDecodeError:
-            results = {
-                'status': 'error',
-                'message': 'Failed to parse test results',
-                'details': {
-                    'raw_output': logs,
-                    'exit_code': exit_code['StatusCode']
-                }
-            }
+        # Process results
+        if test_cases:
+            test_results = []
+            for test_case, output in zip(test_cases, result['output'].split('\n')):
+                test_results.append({
+                    'input': test_case['input'],
+                    'expected': test_case['expected'],
+                    'actual': output,
+                    'passed': output.strip() == test_case['expected'].strip()
+                })
             
-        return results
-        
-    except DockerException as e:
-        # Retry on Docker-related errors
-        self.retry(exc=e, countdown=5)
-        
+            # Store results in cache
+            cache.set(
+                f'submission_{submission_id}',
+                {
+                    'status': 'success',
+                    'output': result['output'],
+                    'test_results': test_results
+                },
+                timeout=300  # 5 minutes
+            )
+        else:
+            # Store results in cache
+            cache.set(
+                f'submission_{submission_id}',
+                {
+                    'status': 'success',
+                    'output': result['output']
+                },
+                timeout=300  # 5 minutes
+            )
+            
+    except ResourceLimitError as e:
+        cache.set(
+            f'submission_{submission_id}',
+            {
+                'status': 'error',
+                'error': str(e)
+            },
+            timeout=300  # 5 minutes
+        )
+        raise
+    except SecurityError as e:
+        cache.set(
+            f'submission_{submission_id}',
+            {
+                'status': 'error',
+                'error': str(e)
+            },
+            timeout=300  # 5 minutes
+        )
+        raise
+    except SandboxError as e:
+        cache.set(
+            f'submission_{submission_id}',
+            {
+                'status': 'error',
+                'error': str(e)
+            },
+            timeout=300  # 5 minutes
+        )
+        raise
     except Exception as e:
+        cache.set(
+            f'submission_{submission_id}',
+            {
+                'status': 'error',
+                'error': str(e)
+            },
+            timeout=300  # 5 minutes
+        )
+        raise
+    finally:
+        if container:
+            sandbox.cleanup(container)
+
+def prepare_execution_command(code: str, language: str, test_cases: list = None) -> str:
+    """Prepare the execution command based on language and test cases."""
+    # Implementation depends on language-specific requirements
+    # This is a placeholder implementation
+    if language == 'python':
+        return f"python -c '{code}'"
+    elif language == 'javascript':
+        return f"node -e '{code}'"
+    # Add more language support as needed
+    raise ValueError(f"Unsupported language: {language}")
+
+def process_execution_result(result: Dict[str, Any], language: str) -> Dict[str, Any]:
+    """Process the execution result and format the response."""
+    if result['exit_code'] == 0:
+        return {
+            'status': 'success',
+            'output': result['logs'],
+            'exit_code': result['exit_code']
+        }
+    else:
         return {
             'status': 'error',
-            'message': str(e),
-            'details': {
-                'error_type': type(e).__name__
-            }
-        }
-        
-    finally:
-        # Cleanup
-        if container:
-            try:
-                container.stop(timeout=1)
-                container.remove()
-            except:
-                pass
-                
-        if temp_dir:
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass 
+            'error': 'Execution failed',
+            'output': result['logs'],
+            'exit_code': result['exit_code'],
+            'details': result.get('error')
+        } 

@@ -4,9 +4,11 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from .serializers import CodeSubmissionSerializer
+from .serializers import CodeSubmissionSerializer, SubmissionResponseSerializer, StatusResponseSerializer
 from .tasks import run_code_task
 from celery.result import AsyncResult
+import uuid
+from django.core.cache import cache
 
 # Create your views here.
 
@@ -14,56 +16,65 @@ def hello_world(request):
     return JsonResponse({"message": "Hello from Django!"})
 
 class CodeSubmissionView(APIView):
-    """
-    API endpoint for submitting code for execution.
-    """
-    # permission_classes = [IsAuthenticated]  # Temporarily disabled for testing
+    permission_classes = [IsAuthenticated]
     
-    def post(self, request, *args, **kwargs):
-        """
-        Handle code submission.
-        
-        Expected JSON payload:
-        {
-            "code": "def solution(x): return x * 2",
-            "test_file": "test_solution.py",
-            "timeout": 30,
-            "memory_limit": 512,
-            "metadata": {
-                "language": "python",
-                "challenge_id": "123"
-            }
-        }
-        """
+    def post(self, request):
+        """Handle code submission."""
         serializer = CodeSubmissionSerializer(data=request.data)
-        
         if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Generate submission ID
+        submission_id = uuid.uuid4()
+        
+        # Store submission in cache
+        cache.set(
+            f'submission_{submission_id}',
+            {
+                'status': 'pending',
+                'data': serializer.validated_data
+            },
+            timeout=300  # 5 minutes
+        )
+        
+        # Queue task
+        run_code_task.delay(
+            code=serializer.validated_data['code'],
+            language=serializer.validated_data['language'],
+            test_cases=serializer.validated_data.get('test_cases', []),
+            submission_id=str(submission_id)
+        )
+        
+        # Return response
+        response_serializer = SubmissionResponseSerializer({
+            'submission_id': submission_id,
+            'status': 'pending'
+        })
+        return Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+class SubmissionStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get submission status."""
+        submission_id = request.query_params.get('submission_id')
+        if not submission_id:
             return Response(
-                {
-                    "status": "error",
-                    "message": "Invalid submission data",
-                    "errors": serializer.errors
-                },
+                {'error': 'submission_id is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        # Enqueue the task
-        task = run_code_task.delay(
-            code=serializer.validated_data['code'],
-            test_file=serializer.validated_data['test_file'],
-            timeout=serializer.validated_data['timeout'],
-            memory_limit=serializer.validated_data['memory_limit']
-        )
-        
-        return Response(
-            {
-                "status": "queued",
-                "message": "Code submission received",
-                "task_id": task.id,
-                "metadata": serializer.validated_data.get('metadata', {})
-            },
-            status=status.HTTP_202_ACCEPTED
-        )
+        # Get submission from cache
+        submission = cache.get(f'submission_{submission_id}')
+        if not submission:
+            return Response(
+                {'error': 'Submission not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        # Return status
+        response_serializer = StatusResponseSerializer(submission)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 class TaskStatusView(APIView):
     """

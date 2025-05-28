@@ -140,4 +140,60 @@ CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
+
+# Sandbox configuration
+SANDBOX_CONFIG = {
+    'default_timeout': 30,  # seconds
+    'default_memory_limit': '512m',
+    'default_cpu_limit': '1.0',
+    'max_file_size': '1mb',
+    'max_processes': 1,
+    'read_only': True,
+    'network_disabled': True,
+    'security_opts': [
+        'no-new-privileges',
+        'seccomp=unconfined'
+    ],
+    'ulimits': {
+        'nofile': 1024,
+        'nproc': 1024,
+        'memlock': 524288,
+        'as': 524288
+    }
+}
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': 'debug.log',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'core': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+    },
+}
  

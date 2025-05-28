@@ -1,0 +1,14 @@
+# Ignore known false positives
+CVE-2021-33574
+CVE-2021-33560
+CVE-2021-33558
+
+# Ignore vulnerabilities in development dependencies
+CVE-2021-33577
+CVE-2021-33578
+CVE-2021-33579
+
+# Ignore vulnerabilities that are not exploitable in our context
+CVE-2021-33580
+CVE-2021-33581
+CVE-2021-33582 

@@ -30,16 +30,17 @@ services:
       - DJANGO_SETTINGS_MODULE=config.settings
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       - postgres
       - redis
 
-  celery:
+  celery_worker_code:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: sainawhein/kode-war-backend:latest
-    command: celery -A config worker -l INFO -E
+    command: celery -A config worker -Q code_execution -l info
     volumes:
       - ./backend:/app
     environment:
@@ -47,6 +48,44 @@ services:
       - DJANGO_SETTINGS_MODULE=config.settings
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - backend
+
+  celery_worker_test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A config worker -Q test_execution -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - backend
+
+  celery_worker_result:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A config worker -Q result_processing -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       - redis
       - backend
@@ -59,14 +98,18 @@ services:
     command: celery -A config flower --port=5555
     ports:
       - "5555:5555"
+    volumes:
+      - ./backend:/app
     environment:
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=config.settings
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       - redis
-      - celery
+      - backend
 
   postgres:
     image: postgres:15
