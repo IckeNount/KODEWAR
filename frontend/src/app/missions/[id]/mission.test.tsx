@@ -12,6 +12,11 @@ vi.mock("./usePyodide", () => ({
   })),
 }));
 
+// Mock Next.js router
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ id: "1" }),
+}));
+
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -35,7 +40,7 @@ describe("MissionPage", () => {
   });
 
   it("renders mission title", () => {
-    render(<MissionPage params={{ id: mockData.id }} />);
+    render(<MissionPage />);
     expect(screen.getByText(`Mission ${mockData.id}`)).toBeInTheDocument();
   });
 
@@ -51,7 +56,7 @@ describe("MissionPage", () => {
       error: null,
     });
 
-    render(<MissionPage params={{ id: "1" }} />);
+    render(<MissionPage />);
 
     // Set local execution mode
     const toggleButton = screen.getByText("Server");
@@ -74,7 +79,7 @@ describe("MissionPage", () => {
       json: () => Promise.resolve(mockResponse),
     });
 
-    render(<MissionPage params={{ id: "1" }} />);
+    render(<MissionPage />);
 
     // Run code
     const runButton = screen.getByText("Run");
@@ -93,7 +98,7 @@ describe("MissionPage", () => {
     const mockError = new Error("Test error");
     mockFetch.mockRejectedValueOnce(mockError);
 
-    render(<MissionPage params={{ id: "1" }} />);
+    render(<MissionPage />);
 
     // Run code
     const runButton = screen.getByText("Run");

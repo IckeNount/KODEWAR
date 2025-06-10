@@ -1,122 +1,148 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Toaster, toast } from "react-hot-toast";
+import { useParams } from "next/navigation";
 import { CodeEditor } from "./CodeEditor";
-import { ConsolePane } from "./ConsolePane";
+import { TestResults } from "./TestResults";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "react-hot-toast";
 
-interface ConsoleOutput {
-  type: "stdout" | "stderr" | "error";
-  content: string;
-  timestamp: number;
+interface Mission {
+  id: string;
+  title: string;
+  description: string;
+  starterCode: string;
+  testCases: {
+    id: string;
+    name: string;
+    code: string;
+    expectedOutput: string;
+    points: number;
+  }[];
+  hints: {
+    id: string;
+    text: string;
+    unlockAfterAttempts: number;
+  }[];
 }
 
-export default function MissionPage({ params }: { params: { id: string } }) {
+interface MissionProgress {
+  isCompleted: boolean;
+  bestScore: number;
+  hintsUnlocked: number;
+}
+
+export default function MissionPage() {
+  const { id } = useParams();
+  const queryClient = useQueryClient();
   const [code, setCode] = useState("");
-  const [isPyodideReady, setIsPyodideReady] = useState(false);
-  const [useLocalExecution, setUseLocalExecution] = useState(
-    process.env.NEXT_PUBLIC_USE_PYODIDE === "true"
-  );
-  const [outputs, setOutputs] = useState<ConsoleOutput[]>([]);
+  const [testResults, setTestResults] = useState<{
+    score: number;
+    passedTests: string[];
+    failedTests: string[];
+  } | null>(null);
 
-  // Load execution mode preference from localStorage
-  useEffect(() => {
-    const savedMode = localStorage.getItem("useLocalExecution");
-    if (savedMode !== null) {
-      setUseLocalExecution(savedMode === "true");
-    }
-  }, []);
+  // Fetch mission data
+  const { data: mission, isLoading: isLoadingMission } = useQuery<Mission>({
+    queryKey: ["mission", id],
+    queryFn: async () => {
+      const response = await fetch(`/api/missions/${id}`);
+      if (!response.ok) throw new Error("Failed to fetch mission");
+      return response.json();
+    },
+  });
 
-  // Save execution mode preference
-  useEffect(() => {
-    localStorage.setItem("useLocalExecution", useLocalExecution.toString());
-  }, [useLocalExecution]);
-
-  const handleExecutionResult = (result: {
-    stdout: string;
-    stderr: string;
-  }) => {
-    const newOutputs: ConsoleOutput[] = [];
-    const timestamp = Date.now();
-
-    if (result.stdout) {
-      newOutputs.push({
-        type: "stdout",
-        content: result.stdout,
-        timestamp,
-      });
-    }
-
-    if (result.stderr) {
-      newOutputs.push({
-        type: "stderr",
-        content: result.stderr,
-        timestamp,
-      });
-    }
-
-    setOutputs((prev) => [...prev, ...newOutputs]);
-  };
-
-  const handleExecutionError = (error: Error) => {
-    setOutputs((prev) => [
-      ...prev,
-      {
-        type: "error",
-        content: error.message,
-        timestamp: Date.now(),
+  // Fetch mission progress
+  const { data: progress, isLoading: isLoadingProgress } =
+    useQuery<MissionProgress>({
+      queryKey: ["missionProgress", id],
+      queryFn: async () => {
+        const response = await fetch(`/api/missions/${id}/progress`);
+        if (!response.ok) throw new Error("Failed to fetch progress");
+        return response.json();
       },
-    ]);
-
-    // Show toast for errors
-    toast.error(error.message, {
-      duration: 4000,
-      position: "bottom-right",
     });
-  };
 
-  const handleClearConsole = () => {
-    setOutputs([]);
-  };
+  // Request hint mutation
+  const { mutate: requestHint } = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/missions/${id}/request_hint`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Failed to request hint");
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success("New hint unlocked!");
+      // Refetch progress to update hints
+      queryClient.invalidateQueries({ queryKey: ["missionProgress", id] });
+    },
+    onError: () => {
+      toast.error("Failed to unlock hint");
+    },
+  });
+
+  // Initialize code from mission data
+  useEffect(() => {
+    if (mission?.starterCode) {
+      setCode(mission.starterCode);
+    }
+  }, [mission?.starterCode]);
+
+  if (isLoadingMission || isLoadingProgress) {
+    return (
+      <div className='flex items-center justify-center h-screen'>
+        <div className='text-xl'>Loading mission...</div>
+      </div>
+    );
+  }
+
+  if (!mission) {
+    return (
+      <div className='flex items-center justify-center h-screen'>
+        <div className='text-xl text-red-500'>Mission not found</div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <Toaster />
-      <div className='flex h-screen bg-gray-900 text-white'>
-        {/* Left side - Code Editor */}
-        <div className='flex-1 flex flex-col'>
-          <div className='flex items-center justify-between p-4 border-b border-gray-700'>
-            <h1 className='text-xl font-mono'>Mission {params.id}</h1>
-            <div className='flex items-center gap-4'>
-              <div className='flex items-center gap-2'>
-                <span className='text-sm text-gray-400'>Execution:</span>
-                <button
-                  onClick={() => setUseLocalExecution(!useLocalExecution)}
-                  className='px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-sm'
-                >
-                  {useLocalExecution ? "Local" : "Server"}
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className='flex-1'>
-            <CodeEditor
-              code={code}
-              onChange={setCode}
-              useLocalExecution={useLocalExecution}
-              isPyodideReady={isPyodideReady}
-              onPyodideReady={() => setIsPyodideReady(true)}
-              onExecutionResult={handleExecutionResult}
-              onExecutionError={handleExecutionError}
-            />
-          </div>
+    <div className='container mx-auto px-4 py-8'>
+      <div className='mb-8'>
+        <h1 className='text-3xl font-bold mb-2'>{mission.title}</h1>
+        <p className='text-gray-400'>{mission.description}</p>
+      </div>
+
+      <div className='grid grid-cols-1 lg:grid-cols-2 gap-8'>
+        {/* Code Editor */}
+        <div className='h-[600px] bg-gray-900 rounded-lg overflow-hidden'>
+          <CodeEditor
+            code={code}
+            onChange={setCode}
+            missionId={id as string}
+            testCases={mission.testCases}
+            onSubmissionComplete={setTestResults}
+          />
         </div>
 
-        {/* Right side - Console */}
-        <div className='w-1/3 border-l border-gray-700'>
-          <ConsolePane outputs={outputs} onClear={handleClearConsole} />
+        {/* Test Results */}
+        <div>
+          {testResults ? (
+            <TestResults
+              testCases={mission.testCases}
+              passedTests={testResults.passedTests}
+              failedTests={testResults.failedTests}
+              score={testResults.score}
+              onHintRequest={requestHint}
+              hintsUnlocked={progress?.hintsUnlocked ?? 0}
+              totalHints={mission.hints.length}
+            />
+          ) : (
+            <div className='bg-gray-800 rounded-lg p-4 text-center text-gray-400'>
+              Submit your code to see test results
+            </div>
+          )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

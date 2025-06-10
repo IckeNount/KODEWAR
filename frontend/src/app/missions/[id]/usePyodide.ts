@@ -5,6 +5,25 @@ import { toast } from "react-hot-toast";
 interface PyodideResult {
   stdout: string;
   stderr: string;
+  success: boolean;
+  executionTime: number;
+}
+
+interface TestCase {
+  id: string;
+  name: string;
+  code: string;
+  expectedOutput: string;
+  points: number;
+}
+
+interface MissionExecutionResult {
+  passedTests: string[];
+  failedTests: string[];
+  score: number;
+  executionTime: number;
+  stdout: string;
+  stderr: string;
 }
 
 export function usePyodide() {
@@ -50,8 +69,6 @@ export function usePyodide() {
         pyodide.terminate();
       }
     };
-    // We only want to run this cleanup on unmount, not on every pyodide change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Set up stdout/stderr handlers
@@ -65,16 +82,20 @@ export function usePyodide() {
     }
   }, [pyodide]);
 
-  const run = async (code: string): Promise<PyodideResult> => {
+  const run = async (
+    code: string,
+    timeout: number = 2000
+  ): Promise<PyodideResult> => {
     if (!pyodide) {
       throw new Error("Pyodide not initialized");
     }
 
+    const startTime = performance.now();
+    let stdout = "";
+    let stderr = "";
+
     try {
       // Capture stdout/stderr
-      let stdout = "";
-      let stderr = "";
-
       pyodide.setStdout({
         write: (text: string) => {
           stdout += text;
@@ -89,23 +110,72 @@ export function usePyodide() {
 
       // Run the code with timeout
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Execution timed out")), 10000);
+        setTimeout(() => reject(new Error("Execution timed out")), timeout);
       });
 
       await Promise.race([pyodide.runPythonAsync(code), timeoutPromise]);
 
-      return { stdout, stderr };
+      return {
+        stdout,
+        stderr,
+        success: true,
+        executionTime: performance.now() - startTime,
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       return {
-        stdout: "",
+        stdout,
         stderr: errorMessage,
+        success: false,
+        executionTime: performance.now() - startTime,
       };
     }
   };
 
+  const runMissionTests = async (
+    code: string,
+    testCases: TestCase[],
+    timeout: number = 2000
+  ): Promise<MissionExecutionResult> => {
+    const passedTests: string[] = [];
+    const failedTests: string[] = [];
+    let totalPoints = 0;
+    let earnedPoints = 0;
+    let totalExecutionTime = 0;
+
+    for (const test of testCases) {
+      const testCode = `${code}\n\n${test.code}`;
+      const result = await run(testCode, timeout);
+      totalExecutionTime += result.executionTime;
+
+      if (
+        result.success &&
+        result.stdout.trim() === test.expectedOutput.trim()
+      ) {
+        passedTests.push(test.id);
+        earnedPoints += test.points;
+      } else {
+        failedTests.push(test.id);
+      }
+      totalPoints += test.points;
+    }
+
+    const score =
+      totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+
+    return {
+      passedTests,
+      failedTests,
+      score,
+      executionTime: totalExecutionTime,
+      stdout: "",
+      stderr: "",
+    };
+  };
+
   return {
     run,
+    runMissionTests,
     isReady,
     error,
   };
